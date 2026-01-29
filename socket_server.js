@@ -26,6 +26,10 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/online-users", (req, res) => {
+  res.json(Array.from(connectedUsers.keys()));
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
