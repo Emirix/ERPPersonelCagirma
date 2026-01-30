@@ -126,8 +126,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("yeni_kod", (data) => {
-    console.log("Yeni Kod Alındı ve Yayınlanıyor:", data.kod);
+    console.log("Yeni Kod Alındı (Server Log):", data);
     io.emit("yeni_kod", data);
+    console.log("Yeni Kod Yayınlandı (Server Log)");
   });
 
   socket.on("disconnect", () => {
