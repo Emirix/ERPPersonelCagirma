@@ -125,6 +125,11 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("yeni_kod", (data) => {
+    console.log("Yeni Kod Alındı ve Yayınlanıyor:", data.kod);
+    io.emit("yeni_kod", data);
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
     for (let [uid, sid] of connectedUsers.entries()) {
