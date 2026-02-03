@@ -5,19 +5,17 @@ const cors = require("cors");
 
 const app = express();
 
-// CORS Yapılandırması - Tek bir yerden ve düzgün yönetim
 app.use(
   cors({
-    origin: true, // İstek atan her adresi otomatik kabul et (Credentials için en hızlı yol)
+    origin: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
 
-// Online kullanıcı listesi endpoint'i
 app.get("/online-users", (req, res) => {
-  // Map.keys()'i diziye çevirip hızlıca gönderiyoruz
+  res.setHeader('X-Accel-Buffering', 'no');
   res.json(Array.from(connectedUsers.keys()));
 });
 
@@ -34,8 +32,13 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-// userId -> Set(socket.id) şeklinde tutarak birden fazla sekmeyi yönetelim
 const connectedUsers = new Map();
+
+// Online listesini herkese yayınla
+function broadcastOnlineUsers() {
+  const list = Array.from(connectedUsers.keys());
+  io.emit("online_users_list", list);
+}
 
 function checkTimeAndSendReportPopup() {
   const now = new Date();
@@ -66,7 +69,13 @@ io.on("connection", (socket) => {
         connectedUsers.set(uidStr, new Set());
       }
       connectedUsers.get(uidStr).add(socket.id);
-      console.log(`User registered: ${uidStr}`);
+      broadcastOnlineUsers(); // Güncel listeyi yayınla
+    }
+  });
+
+  socket.on("get_online_users", (callback) => {
+    if (typeof callback === "function") {
+      callback(Array.from(connectedUsers.keys()));
     }
   });
 
@@ -75,7 +84,6 @@ io.on("connection", (socket) => {
     const targetSockets = connectedUsers.get(String(targetUserId));
 
     if (targetSockets && targetSockets.size > 0) {
-      // Kullanıcının tüm açık sekmelerine bildirimi gönder
       targetSockets.forEach(sid => {
         io.to(sid).emit("incoming_call", {
           callerName,
@@ -99,30 +107,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("call_seen", (data) => {
-    const { callerId, targetName } = data;
-    const callerSockets = connectedUsers.get(String(callerId));
-
-    if (callerSockets) {
-      callerSockets.forEach(sid => {
-        io.to(sid).emit("call_accepted", {
-          targetName,
-          message: `${targetName} çağrınızı gördü`,
-        });
-      });
-    }
-  });
-
-  socket.on("yeni_kod", (data) => {
-    io.emit("yeni_kod", data);
-  });
-
-  socket.on("get_online_users", (callback) => {
-    if (typeof callback === "function") {
-      callback(Array.from(connectedUsers.keys()));
-    }
-  });
-
   socket.on("disconnect", () => {
     if (socket.userId && connectedUsers.has(socket.userId)) {
       const userSockets = connectedUsers.get(socket.userId);
@@ -131,6 +115,7 @@ io.on("connection", (socket) => {
       if (userSockets.size === 0) {
         connectedUsers.delete(socket.userId);
       }
+      broadcastOnlineUsers(); // Güncel listeyi yayınla
     }
   });
 });
