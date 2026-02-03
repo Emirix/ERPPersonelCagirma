@@ -83,11 +83,15 @@ io.on("connection", (socket) => {
     const targetSockets = connectedUsers.get(String(targetUserId));
 
     if (targetSockets && targetSockets.size > 0) {
+      const now = new Date();
+      const callTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+
       targetSockets.forEach(sid => {
         io.to(sid).emit("incoming_call", {
           callerName,
           callerId,
           note: note || "",
+          time: callTime,
           message: `${callerName} sizi çağırıyor`,
         });
       });
