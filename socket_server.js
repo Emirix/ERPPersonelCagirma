@@ -16,13 +16,16 @@ app.use(
 
 app.get("/online-users", (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.json(Array.from(connectedUsers.keys()));
 });
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: "*", // Yerel ağda sorun çıkmaması için tüm kökenlere izin ver
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   },
@@ -33,12 +36,6 @@ const io = new Server(server, {
 });
 
 const connectedUsers = new Map();
-
-// Online listesini herkese yayınla
-function broadcastOnlineUsers() {
-  const list = Array.from(connectedUsers.keys());
-  io.emit("online_users_list", list);
-}
 
 function checkTimeAndSendReportPopup() {
   const now = new Date();
@@ -60,6 +57,8 @@ function checkTimeAndSendReportPopup() {
 setInterval(checkTimeAndSendReportPopup, 60000);
 
 io.on("connection", (socket) => {
+  console.log(`[${new Date().toLocaleTimeString()}] New connection: ${socket.id}`);
+
   socket.on("register", (userId) => {
     if (userId) {
       const uidStr = String(userId);
@@ -69,7 +68,7 @@ io.on("connection", (socket) => {
         connectedUsers.set(uidStr, new Set());
       }
       connectedUsers.get(uidStr).add(socket.id);
-      broadcastOnlineUsers(); // Güncel listeyi yayınla
+      console.log(`[${new Date().toLocaleTimeString()}] User Registered: ID ${uidStr} (Total Online: ${connectedUsers.size})`);
     }
   });
 
@@ -107,6 +106,24 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("call_seen", (data) => {
+    const { callerId, targetName } = data;
+    const callerSockets = connectedUsers.get(String(callerId));
+
+    if (callerSockets) {
+      callerSockets.forEach(sid => {
+        io.to(sid).emit("call_accepted", {
+          targetName,
+          message: `${targetName} çağrınızı gördü`,
+        });
+      });
+    }
+  });
+
+  socket.on("yeni_kod", (data) => {
+    io.emit("yeni_kod", data);
+  });
+
   socket.on("disconnect", () => {
     if (socket.userId && connectedUsers.has(socket.userId)) {
       const userSockets = connectedUsers.get(socket.userId);
@@ -114,8 +131,10 @@ io.on("connection", (socket) => {
       
       if (userSockets.size === 0) {
         connectedUsers.delete(socket.userId);
+        console.log(`[${new Date().toLocaleTimeString()}] User Offline: ID ${socket.userId} (Remaining Online: ${connectedUsers.size})`);
       }
-      broadcastOnlineUsers(); // Güncel listeyi yayınla
+    } else {
+      console.log(`[${new Date().toLocaleTimeString()}] Unregistered socket disconnected: ${socket.id}`);
     }
   });
 });
