@@ -40,6 +40,8 @@ const io = new Server(server, {
   },
   transports: ["websocket", "polling"],
   allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
 const connectedUsers = new Map();
@@ -70,7 +72,9 @@ io.on("connection", (socket) => {
 
   socket.on("register", (userId) => {
     if (userId) {
-      connectedUsers.set(String(userId), socket.id);
+      const uidStr = String(userId);
+      connectedUsers.set(uidStr, socket.id);
+      socket.userId = uidStr;
       console.log(`User registered: ${userId} -> ${socket.id}`);
     }
   });
@@ -133,11 +137,8 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
-    for (let [uid, sid] of connectedUsers.entries()) {
-      if (sid === socket.id) {
-        connectedUsers.delete(uid);
-        break;
-      }
+    if (socket.userId) {
+      connectedUsers.delete(socket.userId);
     }
   });
 });
