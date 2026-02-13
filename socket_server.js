@@ -128,27 +128,9 @@ io.on("connection", (socket) => {
 
   // 1. Video Call Start (Caller -> Server -> Target)
   socket.on("video_call_start", (data) => {
-    const { targetId, callerName, callerId, groupIds } = data;
-    
-    // If it's a group call
-    if (groupIds && Array.isArray(groupIds)) {
-      groupIds.forEach(tid => {
-        const targetSockets = connectedUsers.get(String(tid));
-        if (targetSockets) {
-          targetSockets.forEach(sid => {
-            io.to(sid).emit("incoming_video_call", {
-              callerName,
-              callerId,
-              isGroup: true,
-              allTargets: groupIds
-            });
-          });
-        }
-      });
-      return;
-    }
-
+    const { targetId, callerName, callerId } = data;
     const targetSockets = connectedUsers.get(String(targetId));
+
     if (targetSockets) {
       targetSockets.forEach(sid => {
         io.to(sid).emit("incoming_video_call", {
@@ -210,21 +192,20 @@ io.on("connection", (socket) => {
       targetSockets.forEach(sid => {
         io.to(sid).emit("answer", {
           answer,
-          targetId: socket.userId // Tell the original caller who is answering
+          targetId // Answer is from target
         });
       });
     }
   });
 
   socket.on("ice_candidate", (data) => {
-    const { targetId, candidate, callerId } = data;
+    const { targetId, candidate } = data;
     const targetSockets = connectedUsers.get(String(targetId));
 
     if (targetSockets) {
       targetSockets.forEach(sid => {
         io.to(sid).emit("ice_candidate", {
-          candidate,
-          fromId: callerId || socket.userId
+          candidate
         });
       });
     }
