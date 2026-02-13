@@ -210,20 +210,21 @@ io.on("connection", (socket) => {
       targetSockets.forEach(sid => {
         io.to(sid).emit("answer", {
           answer,
-          targetId // Answer is from target
+          targetId: socket.userId // Tell the original caller who is answering
         });
       });
     }
   });
 
   socket.on("ice_candidate", (data) => {
-    const { targetId, candidate } = data;
+    const { targetId, candidate, callerId } = data;
     const targetSockets = connectedUsers.get(String(targetId));
 
     if (targetSockets) {
       targetSockets.forEach(sid => {
         io.to(sid).emit("ice_candidate", {
-          candidate
+          candidate,
+          fromId: callerId || socket.userId
         });
       });
     }
