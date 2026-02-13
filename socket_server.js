@@ -124,6 +124,105 @@ io.on("connection", (socket) => {
     }
   });
 
+  // --- VIDEO CALL EVENTS ---
+
+  // 1. Video Call Start (Caller -> Server -> Target)
+  socket.on("video_call_start", (data) => {
+    const { targetId, callerName, callerId } = data;
+    const targetSockets = connectedUsers.get(String(targetId));
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("incoming_video_call", {
+          callerName,
+          callerId
+        });
+      });
+    }
+  });
+
+  // 2. Video Call Accepted (Target -> Server -> Caller)
+  socket.on("video_call_accepted", (data) => {
+    const { targetId, callerId } = data; // Note: targetId here is the original caller
+    const targetSockets = connectedUsers.get(String(targetId)); // Original caller sockets
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("video_call_accepted", {
+          targetId: callerId, // Send back who accepted (original target)
+        });
+      });
+    }
+  });
+
+  // 3. Video Call Rejected
+  socket.on("video_call_rejected", (data) => {
+    const { targetId, rejecterId } = data;
+    const targetSockets = connectedUsers.get(String(targetId));
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("video_call_rejected", {
+          rejecterId
+        });
+      });
+    }
+  });
+
+  // 4. WebRTC Signaling (Offer, Answer, Candidate)
+  socket.on("offer", (data) => {
+    const { targetId, offer, callerId } = data;
+    const targetSockets = connectedUsers.get(String(targetId));
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("offer", {
+          offer,
+          callerId
+        });
+      });
+    }
+  });
+
+  socket.on("answer", (data) => {
+    const { targetId, answer } = data;
+    const targetSockets = connectedUsers.get(String(targetId));
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("answer", {
+          answer,
+          targetId // Answer is from target
+        });
+      });
+    }
+  });
+
+  socket.on("ice_candidate", (data) => {
+    const { targetId, candidate } = data;
+    const targetSockets = connectedUsers.get(String(targetId));
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("ice_candidate", {
+          candidate
+        });
+      });
+    }
+  });
+
+  // 5. End Call
+  socket.on("end_call", (data) => {
+    const { targetId } = data;
+    const targetSockets = connectedUsers.get(String(targetId));
+
+    if (targetSockets) {
+      targetSockets.forEach(sid => {
+        io.to(sid).emit("end_call", {});
+      });
+    }
+  });
+
   socket.on("yeni_kod", (data) => {
     io.emit("yeni_kod", data);
   });
