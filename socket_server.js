@@ -128,9 +128,27 @@ io.on("connection", (socket) => {
 
   // 1. Video Call Start (Caller -> Server -> Target)
   socket.on("video_call_start", (data) => {
-    const { targetId, callerName, callerId } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
+    const { targetId, callerName, callerId, groupIds } = data;
+    
+    // If it's a group call
+    if (groupIds && Array.isArray(groupIds)) {
+      groupIds.forEach(tid => {
+        const targetSockets = connectedUsers.get(String(tid));
+        if (targetSockets) {
+          targetSockets.forEach(sid => {
+            io.to(sid).emit("incoming_video_call", {
+              callerName,
+              callerId,
+              isGroup: true,
+              allTargets: groupIds
+            });
+          });
+        }
+      });
+      return;
+    }
 
+    const targetSockets = connectedUsers.get(String(targetId));
     if (targetSockets) {
       targetSockets.forEach(sid => {
         io.to(sid).emit("incoming_video_call", {
