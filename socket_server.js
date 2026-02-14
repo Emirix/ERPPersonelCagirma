@@ -145,8 +145,11 @@ io.on("connection", (socket) => {
         targetIds = [targetIds];
     }
 
+    // Normalize IDs to strings
+    targetIds = targetIds.map(id => String(id));
+
     // Filter out invalid IDs
-    targetIds = targetIds.filter(id => id);
+    targetIds = targetIds.filter(id => id && id !== "undefined" && id !== "null");
 
     if (targetIds.length === 0) {
         console.log(`[Video] Call blocked: No valid targets provided by ${callerId}`);
