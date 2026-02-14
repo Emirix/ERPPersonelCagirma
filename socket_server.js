@@ -132,7 +132,26 @@ io.on("connection", (socket) => {
 
   // 1. Video Call Start (Caller -> Server -> Multiple Targets)
   socket.on("video_call_start", (data) => {
-    const { targetIds, callerName, callerId } = data; // targetIds is now an array
+    // Ensure targetIds is always an array
+    let { targetIds, callerName, callerId } = data;
+    
+    // Compatibility: If targetIds is missing but targetId is present (legacy client)
+    if (!targetIds && data.targetId) {
+        targetIds = [data.targetId];
+    }
+    
+    // If it's still not an array (e.g. single value sent as targetIds), wrap it
+    if (!Array.isArray(targetIds)) {
+        targetIds = [targetIds];
+    }
+
+    // Filter out invalid IDs
+    targetIds = targetIds.filter(id => id);
+
+    if (targetIds.length === 0) {
+        console.log(`[Video] Call blocked: No valid targets provided by ${callerId}`);
+        return;
+    }
     
     // Create a new room
     const roomId = `room-${Date.now()}-${callerId}`;
@@ -144,21 +163,19 @@ io.on("connection", (socket) => {
     console.log(`[Video] Call started by ${callerId} in room ${roomId}. Targets: ${targetIds}`);
 
     // Notify all targets
-    if (Array.isArray(targetIds)) {
-      targetIds.forEach(targetId => {
-        const targetSockets = connectedUsers.get(String(targetId));
-        if (targetSockets) {
-          targetSockets.forEach(sid => {
-            io.to(sid).emit("incoming_video_call", {
-              callerName,
-              callerId,
-              roomId,
-              participants: [callerId] // Currently only caller is in
-            });
+    targetIds.forEach(targetId => {
+      const targetSockets = connectedUsers.get(String(targetId));
+      if (targetSockets) {
+        targetSockets.forEach(sid => {
+          io.to(sid).emit("incoming_video_call", {
+            callerName,
+            callerId,
+            roomId,
+            participants: [callerId] // Currently only caller is in
           });
-        }
-      });
-    }
+        });
+      }
+    });
   });
 
   // 2. Video Call Accepted (Target -> Server -> Caller/Room)
