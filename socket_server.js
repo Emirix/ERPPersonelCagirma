@@ -11,14 +11,15 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  })
+  }),
 );
 
+
 app.get("/online-users", (req, res) => {
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.json(Array.from(connectedUsers.keys()));
 });
 
@@ -36,6 +37,7 @@ const io = new Server(server, {
 });
 
 const connectedUsers = new Map();
+const userNames = new Map(); // Store user names
 
 function checkTimeAndSendReportPopup() {
   const now = new Date();
@@ -48,7 +50,7 @@ function checkTimeAndSendReportPopup() {
       global.lastCheckDate = currentDate;
       io.emit("show_report_popup", {
         message: "Şuan rapor gönderilecektir",
-        timestamp: now.toISOString()
+        timestamp: now.toISOString(),
       });
     }
   }
@@ -56,20 +58,84 @@ function checkTimeAndSendReportPopup() {
 
 setInterval(checkTimeAndSendReportPopup, 60000);
 
-io.on("connection", (socket) => {
-  console.log(`[${new Date().toLocaleTimeString()}] New connection: ${socket.id}`);
+const socketToUser = new Map(); // socketId -> userId
 
-  socket.on("register", (userId) => {
-    if (userId) {
-      const uidStr = String(userId);
-      socket.userId = uidStr;
-      
-      if (!connectedUsers.has(uidStr)) {
-        connectedUsers.set(uidStr, new Set());
-      }
-      connectedUsers.get(uidStr).add(socket.id);
-      console.log(`[${new Date().toLocaleTimeString()}] User Registered: ID ${uidStr} (Total Online: ${connectedUsers.size})`);
+io.on("connection", (socket) => {
+  console.log(
+    `[${new Date().toLocaleTimeString()}] New connection: ${socket.id}`,
+  );
+
+  socket.on("register", (data) => {
+    const userId = typeof data === "object" ? data.userId : data;
+    const userName = typeof data === "object" ? data.userName : null;
+
+    if (!userId) return;
+
+    const uid = String(userId);
+
+    socket.userId = uid;
+    socketToUser.set(socket.id, uid);
+
+    if (!connectedUsers.has(uid)) {
+      connectedUsers.set(uid, new Set());
     }
+
+    connectedUsers.get(uid).add(socket.id);
+
+    if (userName) {
+      userNames.set(uid, userName);
+    }
+
+    console.log(
+      `[${new Date().toLocaleTimeString()}] User Registered: ${uid} (${userName || "Unknown"}) | Online Users: ${connectedUsers.size}`,
+    );
+  });
+
+  socket.on("disconnect", (reason) => {
+    const userId = socketToUser.get(socket.id) || socket.userId;
+
+    console.log(
+      `[${new Date().toLocaleTimeString()}] Disconnected: ${socket.id} | User: ${userId} | Reason: ${reason}`,
+    );
+
+    if (userId) {
+      const sockets = connectedUsers.get(userId);
+
+      if (sockets) {
+        sockets.delete(socket.id);
+
+        if (sockets.size === 0) {
+          connectedUsers.delete(userId);
+
+          // Sayfa yenilemelerinde "çevrimdışı" uyarısı gitmemesi için 5 saniye bekletiyoruz
+          setTimeout(() => {
+            const uid = String(userId);
+            if (!connectedUsers.has(uid)) {
+              const adminIds = ["1", "9"];
+              if (!adminIds.includes(uid)) {
+                const name = userNames.get(uid) || `Kullanıcı ${uid}`;
+
+                adminIds.forEach((adminId) => {
+                  const adminSockets = connectedUsers.get(String(adminId));
+                  if (adminSockets && adminSockets.size > 0) {
+                    adminSockets.forEach((sid) => {
+                      io.to(sid).emit("user_offline_notification", {
+                        userId: uid,
+                        userName: name,
+                        message: `${name} çevrimdışı oldu.`,
+                      });
+                    });
+                  }
+                });
+              }
+              userNames.delete(uid);
+            }
+          }, 5000);
+        }
+      }
+    }
+
+    socketToUser.delete(socket.id);
   });
 
   socket.on("get_online_users", (callback) => {
@@ -84,9 +150,12 @@ io.on("connection", (socket) => {
 
     if (targetSockets && targetSockets.size > 0) {
       const now = new Date();
-      const callTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+      const callTime =
+        now.getHours().toString().padStart(2, "0") +
+        ":" +
+        now.getMinutes().toString().padStart(2, "0");
 
-      targetSockets.forEach(sid => {
+      targetSockets.forEach((sid) => {
         io.to(sid).emit("incoming_call", {
           callerName,
           callerId,
@@ -115,7 +184,7 @@ io.on("connection", (socket) => {
     const callerSockets = connectedUsers.get(String(callerId));
 
     if (callerSockets) {
-      callerSockets.forEach(sid => {
+      callerSockets.forEach((sid) => {
         io.to(sid).emit("call_accepted", {
           targetName,
           message: `${targetName} çağrınızı gördü`,
@@ -126,123 +195,39 @@ io.on("connection", (socket) => {
 
   // --- VIDEO CALL EVENTS ---
 
-  // 1. Video Call Start (Caller -> Server -> Target)
+  // 1. Video Call Start (Caller -> Server -> Multiple Targets)
   socket.on("video_call_start", (data) => {
-    const { targetId, callerName, callerId } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
+    const { targetIds, callerName, callerId } = data;
+    
+    // Gelen verinin dizi olduğundan emin olalım
+    const targets = Array.isArray(targetIds) ? targetIds : [targetIds];
 
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("incoming_video_call", {
-          callerName,
-          callerId
-        });
-      });
-    }
-  });
+    targets.forEach(id => {
+        // Map içindeki key string ise String(id), number ise Number(id) kullanın
+        const targetSockets = connectedUsers.get(String(id)); 
+        
+        console.log(`${id} kullanıcısı için bulunan socketler:`, targetSockets);
 
-  // 2. Video Call Accepted (Target -> Server -> Caller)
-  socket.on("video_call_accepted", (data) => {
-    const { targetId, callerId } = data; // Note: targetId here is the original caller
-    const targetSockets = connectedUsers.get(String(targetId)); // Original caller sockets
-
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("video_call_accepted", {
-          targetId: callerId, // Send back who accepted (original target)
-        });
-      });
-    }
-  });
-
-  // 3. Video Call Rejected
-  socket.on("video_call_rejected", (data) => {
-    const { targetId, rejecterId } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
-
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("video_call_rejected", {
-          rejecterId
-        });
-      });
-    }
-  });
-
-  // 4. WebRTC Signaling (Offer, Answer, Candidate)
-  socket.on("offer", (data) => {
-    const { targetId, offer, callerId } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
-
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("offer", {
-          offer,
-          callerId
-        });
-      });
-    }
-  });
-
-  socket.on("answer", (data) => {
-    const { targetId, answer } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
-
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("answer", {
-          answer,
-          targetId // Answer is from target
-        });
-      });
-    }
-  });
-
-  socket.on("ice_candidate", (data) => {
-    const { targetId, candidate } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
-
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("ice_candidate", {
-          candidate
-        });
-      });
-    }
-  });
-
-  // 5. End Call
-  socket.on("end_call", (data) => {
-    const { targetId } = data;
-    const targetSockets = connectedUsers.get(String(targetId));
-
-    if (targetSockets) {
-      targetSockets.forEach(sid => {
-        io.to(sid).emit("end_call", {});
-      });
-    }
-  });
+        if (targetSockets && targetSockets.size > 0) {
+            targetSockets.forEach(sid => {
+                io.to(sid).emit("incoming_video_call", {
+                    callerName,
+                    callerId
+                });
+                console.log(`${sid} nolu socket'e çağrı gönderildi.`);
+            });
+        } else {
+            console.log(`${id} ID'li kullanıcı şu an bağlı değil (offline).`);
+        }
+    });
+});
 
   socket.on("yeni_kod", (data) => {
     io.emit("yeni_kod", data);
   });
-
-  socket.on("disconnect", () => {
-    if (socket.userId && connectedUsers.has(socket.userId)) {
-      const userSockets = connectedUsers.get(socket.userId);
-      userSockets.delete(socket.id);
-      
-      if (userSockets.size === 0) {
-        connectedUsers.delete(socket.userId);
-        console.log(`[${new Date().toLocaleTimeString()}] User Offline: ID ${socket.userId} (Remaining Online: ${connectedUsers.size})`);
-      }
-    } else {
-      console.log(`[${new Date().toLocaleTimeString()}] Unregistered socket disconnected: ${socket.id}`);
-    }
-  });
 });
 
-const PORT = 3000;
+const PORT = 3008;
 server.listen(PORT, () => {
   console.log(`Socket.io server running on port ${PORT}`);
 });
